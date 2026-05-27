@@ -35,9 +35,7 @@ fn samtools_ready() -> bool {
     match samtools_version() {
         Some((maj, min)) if maj > 1 || (maj == 1 && min >= 13) => true,
         Some((maj, min)) => {
-            eprintln!(
-                "SKIP targetcut compat: samtools {maj}.{min} (need >= 1.13)"
-            );
+            eprintln!("SKIP targetcut compat: samtools {maj}.{min} (need >= 1.13)");
             false
         }
         None => {
@@ -81,10 +79,7 @@ fn compare(bam: &Path, samtools_args: &[&str], our_args: &[&str]) {
             .unwrap_or("")
             .lines()
             .collect();
-        let act_lines: Vec<&str> = std::str::from_utf8(&actual)
-            .unwrap_or("")
-            .lines()
-            .collect();
+        let act_lines: Vec<&str> = std::str::from_utf8(&actual).unwrap_or("").lines().collect();
         for (i, (e, a)) in exp_lines.iter().zip(act_lines.iter()).enumerate() {
             if e != a {
                 // Compare field-by-field (tab-split SAM).
@@ -92,9 +87,7 @@ fn compare(bam: &Path, samtools_args: &[&str], our_args: &[&str]) {
                 let af: Vec<&str> = a.splitn(12, '\t').collect();
                 for (fi, (ef, af)) in ef.iter().zip(af.iter()).enumerate() {
                     if ef != af {
-                        panic!(
-                            "Line {i} field {fi} differs\n  expected: {ef}\n  actual:   {af}"
-                        );
+                        panic!("Line {i} field {fi} differs\n  expected: {ef}\n  actual:   {af}");
                     }
                 }
                 panic!("Line {i} differs (possibly length):\n  expected: {e}\n  actual:   {a}");
