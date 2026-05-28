@@ -12,6 +12,11 @@ description = "Identify target intervals from pileup depth — Rust port of samt
 name = "rsomics-bam-targetcut"
 path = "src/main.rs"
 
+
+[lib]
+name = "rsomics_bam_targetcut"
+path = "src/lib.rs"
+doctest = false
 [dependencies]
 rsomics-common = { version = "0.6" }
 rsomics-bamio = { version = "0.1" }
