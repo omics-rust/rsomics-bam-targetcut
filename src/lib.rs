@@ -45,9 +45,9 @@ use serde::Serialize;
 
 #[derive(Debug, Clone)]
 pub struct HmmParams {
-    /// `e[state][coverage_class]`: emission score (integer).
+    /// e[state][coverage_class]
     pub e: [[i32; 3]; 2],
-    /// `p[from][to]`: transition score (integer).
+    /// p[from][to]
     pub p: [[i32; 2]; 2],
 }
 
@@ -62,15 +62,12 @@ impl Default for HmmParams {
 
 #[derive(Debug, Clone)]
 pub struct TargetcutOpts {
-    /// `-Q`: minimum base quality (default 13, mirrors samtools).
     pub min_base_q: u8,
-    /// `-i`: in-penalty for 0→1 transition (sets `p[0][1] = -penalty`).
     pub in_penalty: i32,
-    /// `-0/-1/-2`: emission scores for on-target states 0/1/2.
     pub em0: Option<i32>,
     pub em1: Option<i32>,
     pub em2: Option<i32>,
-    /// `-f`: reference FASTA path (accepted, not used for BAQ — see module doc).
+    /// Accepted for CLI compat; BAQ re-alignment is not implemented (see module doc).
     pub reference: Option<std::path::PathBuf>,
 }
 
@@ -196,7 +193,7 @@ fn run<W: Write>(
         }
     }
 
-    // Process last chromosome.
+    // Flush last chromosome.
     if prev_tid >= 0 && !cns.is_empty() {
         let chrom = ref_names
             .get(prev_tid as usize)
@@ -224,24 +221,17 @@ fn process_cns<W: Write>(out: &mut W, chrom: &str, cns: &[u16], params: &HmmPara
         return Ok(0);
     }
 
-    // `b[i]` encodes:
-    //   bits [1:0] = from-state that led to state 0 at position i
-    //   bits [3:2] = from-state that led to state 1 at position i
-    //   bits [5:4] = final state label (set during backtrack)
+    // b[i]: bits[1:0]=best-from for state-0, bits[3:2]=best-from for state-1, bits[5:4]=final label.
     let mut b: Vec<u8> = vec![0u8; l];
-
-    // Forward Viterbi (f[state]).
     let mut f = [0i32; 2];
 
     for i in 0..l {
         let c = coverage_class(cns[i]);
 
-        // Best predecessor for state 0.
         let t0 = f[0] + params.e[0][c] + params.p[0][0];
         let t1 = f[1] + params.e[0][c] + params.p[1][0];
         let (f0_new, b0) = if t0 >= t1 { (t0, 0u8) } else { (t1, 1u8) };
 
-        // Best predecessor for state 1.
         let u0 = f[0] + params.e[1][c] + params.p[0][1];
         let u1 = f[1] + params.e[1][c] + params.p[1][1];
         let (f1_new, b1) = if u0 >= u1 { (u0, 0u8) } else { (u1, 1u8) };
@@ -251,19 +241,12 @@ fn process_cns<W: Write>(out: &mut W, chrom: &str, cns: &[u16], params: &HmmPara
         f[1] = f1_new;
     }
 
-    // Backtrack: pick the terminal state and trace back.
     let mut s = if f[0] >= f[1] { 0u8 } else { 1u8 };
     for i in (1..l).rev() {
-        // Store the final label in bits [5:4] (using a 2-bit field at bit 2).
-        b[i] |= s << 2;
-        // Follow the back-pointer for state `s`.
+        b[i] |= s << 2; // store final label in bits[5:4]
         s = (b[i] >> s) & 1;
     }
 
-    // Emit target intervals (scan for on-target runs).
-    // The samtools loop starts s=-1 and iterates to i==l inclusive, emitting
-    // when it sees a transition from on-target to off-target (or reaches the end).
-    // `i` is used both to index `b` and as the interval boundary value.
     let mut start: Option<usize> = None;
     let mut targets = 0u64;
 
@@ -285,10 +268,8 @@ fn process_cns<W: Write>(out: &mut W, chrom: &str, cns: &[u16], params: &HmmPara
     Ok(targets)
 }
 
-/// Classify a consensus value into coverage class 0/1/2 (mirrors `main_cut_target` pileup decode).
-/// class 0: no coverage (cns == 0)
-/// class 1: present but depth byte = 0 (cns >> 8 == 0, i.e. depth represented is 0)
-/// class 2: depth byte > 0 (cns >> 8 > 0)
+/// Coverage class for the Viterbi emission: 0=no coverage, 1=covered but depth byte 0, 2=depth byte >0.
+/// Mirrors `main_cut_target` in `cut_target.c`.
 #[inline]
 fn coverage_class(cns: u16) -> usize {
     if cns == 0 {
@@ -321,7 +302,6 @@ fn emit_target<W: Write>(
     cns: &[u16],
 ) -> Result<()> {
     let len = end - start;
-    // QNAME
     write!(
         out,
         "{}:{}-{}\t0\t{}\t{}\t60\t{}M\t*\t0\t0\t",
@@ -333,7 +313,6 @@ fn emit_target<W: Write>(
         len
     )
     .map_err(RsomicsError::Io)?;
-    // SEQ
     for &v in &cns[start..end] {
         let c = v >> 8;
         let base = if c == 0 {
@@ -344,7 +323,6 @@ fn emit_target<W: Write>(
         out.write_all(&[base]).map_err(RsomicsError::Io)?;
     }
     out.write_all(b"\t").map_err(RsomicsError::Io)?;
-    // QUAL: top 6 bits of depth byte are the quality score
     for &v in &cns[start..end] {
         let q = (v >> 8 >> 2) as u8;
         out.write_all(&[33 + q]).map_err(RsomicsError::Io)?;
